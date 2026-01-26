@@ -4,34 +4,47 @@
     <meta charset="utf-8" />
     <title>Mixpanel Demo</title>
 
-    <!-- Load Mixpanel library directly -->
-    <script src="https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js"></script>
-
-    <!-- Initialize Mixpanel -->
     <script>
-      mixpanel.init("472e91dc05aa81a296fa976fc66576e3", {
-        track_pageview: true,
-        debug: true
-      });
+      // Load Mixpanel JS and initialize only after it finishes loading
+      (function loadMixpanel() {
+        var s = document.createElement("script");
+        s.src = "https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js";
+        s.async = false; // force ordered execution
+        s.onload = function () {
+          if (window.mixpanel && typeof window.mixpanel.init === "function") {
+            window.mixpanel.init("472e91dc05aa81a296fa976fc66576e3", {
+              track_pageview: true,
+              debug: true
+            });
+            console.log("Mixpanel loaded + initialized");
+          } else {
+            console.error("Mixpanel script loaded but mixpanel is missing");
+          }
+        };
+        s.onerror = function () {
+          console.error("Failed to load Mixpanel library");
+        };
+        document.head.appendChild(s);
+      })();
     </script>
   </head>
 
   <body style="font-family: Arial, sans-serif; padding: 24px;">
     <h2>Demo events</h2>
 
-    <button onclick="mixpanel.track('Onboarding Started')">
+    <button onclick="window.mixpanel && window.mixpanel.track('Onboarding Started')">
       Start onboarding
     </button>
 
-    <button onclick="mixpanel.track('Onboarding Step Viewed', { step: 'verify_email' })">
+    <button onclick="window.mixpanel && window.mixpanel.track('Onboarding Step Viewed', { step: 'verify_email' })">
       Verify email
     </button>
 
-    <button onclick="mixpanel.track('Onboarding Completed')">
+    <button onclick="window.mixpanel && window.mixpanel.track('Onboarding Completed')">
       Complete onboarding
     </button>
 
-    <button onclick="mixpanel.track('Error Shown', { bug_id: 'BUG-123' })">
+    <button onclick="window.mixpanel && window.mixpanel.track('Error Shown', { bug_id: 'BUG-123' })">
       Trigger BUG-123
     </button>
 
