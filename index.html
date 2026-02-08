@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Mixpanel Demo – Funnels + Feature Impact</title>
+    <title>Mixpanel Demo – Funnels + Feature Impact + Attempts</title>
 
     <!-- Mixpanel official snippet (creates window.mixpanel stub + loads the library) -->
     <script>
@@ -48,14 +48,18 @@
         }
       })(document, window.mixpanel || []);
 
+      // =========================
       // Init
+      // =========================
       mixpanel.init("472e91dc05aa81a296fa976fc66576e3", {
         debug: true,
         track_pageview: true,
         ignore_dnt: true
       });
 
-      // ---- Demo helpers ----
+      // =========================
+      // Helpers
+      // =========================
       function randomId(prefix) {
         return (
           prefix +
@@ -63,37 +67,6 @@
           "-" +
           Date.now().toString(16)
         );
-      }
-
-      function startNewUser(deviceHint) {
-        // reset anonymous id + super properties
-        mixpanel.reset();
-
-        const id = randomId("demo-user-");
-        mixpanel.identify(id);
-
-        // Super properties to make demo consistent
-        mixpanel.register({
-          demo_env: "github-pages",
-          demo_platform: "web",
-          device_hint: deviceHint || "desktop",
-          feature_variant: window.__featureVariant || "off"
-        });
-
-        // Optional people props (not required)
-        mixpanel.people.set({
-          demo_env: "github-pages",
-          feature_variant: window.__featureVariant || "off",
-          device_hint: deviceHint || "desktop"
-        });
-
-        log(`New user session: ${id} (feature_variant=${window.__featureVariant || "off"})`);
-      }
-
-      function setFeatureVariant(variant) {
-        window.__featureVariant = variant; // "on" | "off"
-        mixpanel.register({ feature_variant: variant });
-        log(`feature_variant set to: ${variant}`);
       }
 
       function log(msg) {
@@ -104,7 +77,55 @@
         el.prepend(line);
       }
 
-      // ---- Events we will use in funnels ----
+      // =========================
+      // Feature variant + user/session controls
+      // =========================
+      window.__featureVariant = "off";
+
+      function setFeatureVariant(variant) {
+        window.__featureVariant = variant; // "on" | "off"
+        mixpanel.register({ feature_variant: variant });
+        log(`feature_variant set to: ${variant}`);
+      }
+
+      // Start a new anonymous user identity (new distinct_id)
+      function startNewUser(deviceHint) {
+        mixpanel.reset();
+
+        const id = randomId("demo-user-");
+        mixpanel.identify(id);
+
+        mixpanel.register({
+          demo_env: "github-pages",
+          demo_platform: "web",
+          device_hint: deviceHint || "desktop",
+          feature_variant: window.__featureVariant || "off"
+        });
+
+        // Optional people props (not required)
+        try {
+          mixpanel.people.set({
+            demo_env: "github-pages",
+            feature_variant: window.__featureVariant || "off",
+            device_hint: deviceHint || "desktop"
+          });
+        } catch (e) {
+          // ignore if people is not available in plan / blocked
+        }
+
+        // new session per new user by default (helps avoid confusion)
+        newSession();
+
+        log(
+          `New user session: ${id} (feature_variant=${
+            window.__featureVariant || "off"
+          })`
+        );
+      }
+
+      // =========================
+      // Base events (feature exposure + onboarding + errors + abandonment)
+      // =========================
       function trackFeatureExposed() {
         mixpanel.track("Feature Exposed", {
           feature_name: "New Onboarding",
@@ -151,11 +172,108 @@
           step: step || "unknown",
           variant: window.__featureVariant || "off"
         });
-        log(`Tracked: Onboarding Abandoned (error_seen=${!!errorSeen}, reason=${reason || "silent_drop"})`);
+        log(
+          `Tracked: Onboarding Abandoned (error_seen=${!!errorSeen}, reason=${
+            reason || "silent_drop"
+          })`
+        );
       }
 
-      // Initialize defaults
-      window.__featureVariant = "off";
+      // =========================
+      // Attempts + Inactivity (advanced)
+      // =========================
+      window.__attemptNumber = 0;
+      window.__attemptId = null;
+      window.__sessionId = null;
+
+      function newSession() {
+        // session id stays stable for a "demo session"
+        window.__sessionId =
+          "sess-" +
+          Math.random().toString(16).slice(2) +
+          "-" +
+          Date.now().toString(16);
+
+        window.__attemptNumber = 0;
+        window.__attemptId = null;
+
+        mixpanel.register({ session_id: window.__sessionId });
+        log("New session_id: " + window.__sessionId);
+      }
+
+      function newAttempt(isRetry) {
+        window.__attemptNumber = window.__attemptNumber + 1;
+        window.__attemptId =
+          "att-" +
+          Math.random().toString(16).slice(2) +
+          "-" +
+          Date.now().toString(16);
+
+        // keep attempt context as super props so every event can be attributed
+        mixpanel.register({
+          attempt_id: window.__attemptId,
+          attempt_number: window.__attemptNumber,
+          is_retry: !!isRetry,
+          session_id: window.__sessionId || "unknown"
+        });
+
+        log(
+          `Attempt created: ${window.__attemptId} (#${window.__attemptNumber}, is_retry=${!!isRetry})`
+        );
+      }
+
+      function trackAttemptStarted(isRetry) {
+        if (!window.__sessionId) newSession();
+        newAttempt(isRetry);
+
+        mixpanel.track("Onboarding Attempt Started", {
+          attempt_id: window.__attemptId,
+          attempt_number: window.__attemptNumber,
+          is_retry: !!isRetry,
+          session_id: window.__sessionId,
+          variant: window.__featureVariant || "off"
+        });
+        log("Tracked: Onboarding Attempt Started");
+      }
+
+      function trackAttemptFailed(reason) {
+        mixpanel.track("Onboarding Attempt Failed", {
+          attempt_id: window.__attemptId,
+          attempt_number: window.__attemptNumber,
+          is_retry: (window.__attemptNumber || 0) > 1,
+          session_id: window.__sessionId,
+          failure_reason: reason || "unknown",
+          variant: window.__featureVariant || "off"
+        });
+        log("Tracked: Onboarding Attempt Failed");
+      }
+
+      function trackAttemptCompleted() {
+        mixpanel.track("Onboarding Attempt Completed", {
+          attempt_id: window.__attemptId,
+          attempt_number: window.__attemptNumber,
+          is_retry: (window.__attemptNumber || 0) > 1,
+          session_id: window.__sessionId,
+          variant: window.__featureVariant || "off"
+        });
+        log("Tracked: Onboarding Attempt Completed");
+      }
+
+      function trackUserBecameInactive(lastStep, errorSeenBefore) {
+        mixpanel.track("User Became Inactive", {
+          session_id: window.__sessionId || "unknown",
+          last_known_step: lastStep || "unknown",
+          last_attempt_number: window.__attemptNumber || 0,
+          error_seen_before: !!errorSeenBefore,
+          time_since_last_event_sec: 180,
+          variant: window.__featureVariant || "off"
+        });
+        log("Tracked: User Became Inactive");
+      }
+
+      // =========================
+      // Defaults on load
+      // =========================
       document.addEventListener("DOMContentLoaded", function () {
         setFeatureVariant("off");
         startNewUser("desktop");
@@ -164,13 +282,15 @@
   </head>
 
   <body style="font-family: Arial, sans-serif; padding: 24px; line-height: 1.4;">
-    <h2>Mixpanel Demo – Funnels + Feature Impact</h2>
+    <h2>Mixpanel Demo – Funnels + Feature Impact + Attempts</h2>
 
     <div style="display:flex; gap:24px; flex-wrap: wrap;">
       <div style="min-width:320px; padding:16px; border:1px solid #ddd; border-radius:12px;">
         <h3>1) Session controls</h3>
         <button onclick="startNewUser('desktop')">New user (desktop)</button>
         <button onclick="startNewUser('mobile')">New user (mobile)</button>
+        <button onclick="newSession()" style="margin-left:8px;">New session</button>
+
         <p style="margin-top:10px;"><b>Feature variant</b></p>
         <button onclick="setFeatureVariant('off')">Feature OFF</button>
         <button onclick="setFeatureVariant('on')">Feature ON</button>
@@ -185,7 +305,7 @@
       </div>
 
       <div style="min-width:320px; padding:16px; border:1px solid #ddd; border-radius:12px;">
-        <h3>3) Onboarding flow events</h3>
+        <h3>3) Basic onboarding events</h3>
         <button onclick="trackOnboardingStarted()">Onboarding Started</button>
         <button onclick="trackStepViewed('verify_email')">Step Viewed: verify_email</button>
         <button onclick="trackErrorShown('BUG-123')">Error Shown: BUG-123</button>
@@ -197,6 +317,32 @@
         </button>
         <button onclick="trackOnboardingAbandoned(true,'after_error','verify_email')">
           Onboarding Abandoned (after error)
+        </button>
+      </div>
+
+      <div style="min-width:320px; padding:16px; border:1px solid #ddd; border-radius:12px;">
+        <h3>4) Attempts + Inactivity (advanced)</h3>
+
+        <p style="margin: 6px 0 10px; opacity:0.8;">
+          Use this block to create retry loops and “unknown outcome” cases.
+        </p>
+
+        <p style="margin-top:10px;"><b>Attempt flow</b></p>
+        <button onclick="trackAttemptStarted(false)">Attempt Started (first try)</button>
+        <button onclick="trackAttemptStarted(true)">Attempt Started (retry)</button>
+
+        <button onclick="trackStepViewed('verify_email')">Step Viewed: verify_email</button>
+        <button onclick="trackErrorShown('BUG-123')">Error Shown: BUG-123</button>
+
+        <button onclick="trackAttemptFailed('error_after_verify_email')">Attempt Failed</button>
+        <button onclick="trackAttemptCompleted()">Attempt Completed</button>
+
+        <p style="margin-top:12px;"><b>Silent / unknown outcome</b></p>
+        <button onclick="trackUserBecameInactive('verify_email', false)">
+          User Became Inactive (no error)
+        </button>
+        <button onclick="trackUserBecameInactive('verify_email', true)">
+          User Became Inactive (after error)
         </button>
       </div>
 
